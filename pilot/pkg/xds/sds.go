@@ -194,7 +194,15 @@ func (s *SecretGen) generate(sr SecretResource, configClusterSecrets, proxyClust
 			return nil
 		}
 	}
-	res := toEnvoyKeyCertSecret(sr.ResourceName, key, cert, proxy, s.meshConfig)
+
+	ocspStaple, err := secretController.GetOcspStaple(sr.Name, cert)
+	if err != nil {
+		pilotSDSCertificateErrors.Increment()
+		log.Warnf("failed to fetch OCSP staple for %s: %v", sr.ResourceName, err)
+		return nil
+	}
+
+	res := toEnvoyKeyCertSecret(sr.ResourceName, key, cert, ocspStaple, proxy, s.meshConfig)
 	return res
 }
 
@@ -313,9 +321,13 @@ func toEnvoyCaSecret(name string, cert []byte) *discovery.Resource {
 	}
 }
 
-func toEnvoyKeyCertSecret(name string, key, cert []byte, proxy *model.Proxy, meshConfig *mesh.MeshConfig) *discovery.Resource {
+func toEnvoyKeyCertSecret(name string, key, cert, ocsp []byte, proxy *model.Proxy, meshConfig *mesh.MeshConfig) *discovery.Resource {
 	var res *anypb.Any
 	pkpConf := proxy.Metadata.ProxyConfigOrDefault(meshConfig.GetDefaultConfig()).GetPrivateKeyProvider()
+	if len(ocsp) == 0 {
+		log.Warnf("OCSP staple for %s is empty!", name)
+	}
+
 	switch pkpConf.GetProvider().(type) {
 	case *mesh.PrivateKeyProvider_Cryptomb:
 		crypto := pkpConf.GetCryptomb()
@@ -342,6 +354,11 @@ func toEnvoyKeyCertSecret(name string, key, cert []byte, proxy *model.Proxy, mes
 							TypedConfig: msg,
 						},
 					},
+					OcspStaple: &core.DataSource{
+						Specifier: &core.DataSource_InlineBytes{
+							InlineBytes: ocsp,
+						},
+					},
 				},
 			},
 		})
@@ -358,6 +375,11 @@ func toEnvoyKeyCertSecret(name string, key, cert []byte, proxy *model.Proxy, mes
 					PrivateKey: &core.DataSource{
 						Specifier: &core.DataSource_InlineBytes{
 							InlineBytes: key,
+						},
+					},
+					OcspStaple: &core.DataSource{
+						Specifier: &core.DataSource_InlineBytes{
+							InlineBytes: ocsp,
 						},
 					},
 				},

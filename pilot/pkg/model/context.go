@@ -41,6 +41,7 @@ import (
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/mesh"
 	"istio.io/istio/pkg/network"
+	"istio.io/istio/pkg/security"
 	"istio.io/istio/pkg/spiffe"
 	"istio.io/istio/pkg/util/identifier"
 	"istio.io/istio/pkg/util/protomarshal"
@@ -585,6 +586,11 @@ type NodeMetadata struct {
 	TLSClientKey string `json:"TLS_CLIENT_KEY,omitempty"`
 	// TLSClientRootCert is the absolute path to client root cert file
 	TLSClientRootCert string `json:"TLS_CLIENT_ROOT_CERT,omitempty"`
+
+	// OcspStapling specifies whether or not OCSP stapling is enabled for this proxy
+	OcspStapling bool
+	// OcspStaplingPolicy specifies the failure mode for the stapling
+	OcspStaplingPolicy security.OcspMode
 
 	CertBaseDir string `json:"BASE,omitempty"`
 

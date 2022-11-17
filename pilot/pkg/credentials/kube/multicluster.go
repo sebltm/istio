@@ -21,6 +21,8 @@ import (
 	"istio.io/istio/pilot/pkg/credentials"
 	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/kube/multicluster"
+	"istio.io/istio/pkg/security"
+	"istio.io/istio/security/pkg/nodeagent/ocsp"
 	"istio.io/pkg/log"
 )
 
@@ -128,6 +130,11 @@ func (a *AggregateController) GetKeyAndCert(name, namespace string) (key []byte,
 		}
 	}
 	return nil, nil, firstError
+}
+
+func (a *AggregateController) GetOcspStaple(name string, certBytes []byte) (ocspStaple []byte, err error) {
+	ocspStaple, err = ocsp.GenerateOcspStaple(security.Optional, certBytes)
+	return
 }
 
 func (a *AggregateController) GetCaCert(name, namespace string) (cert []byte, err error) {
