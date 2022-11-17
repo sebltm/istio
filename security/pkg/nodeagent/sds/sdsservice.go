@@ -274,6 +274,16 @@ func toEnvoySecret(s *security.SecretItem, caRootPath string, pkpConf *mesh.Priv
 				},
 			}
 		}
+
+		// Add an inline staple if it exists
+		if s.OcspStaple != nil {
+			tlsCertificate := secret.Type.(*tls.Secret_TlsCertificate)
+			tlsCertificate.TlsCertificate.OcspStaple = &core.DataSource{
+				Specifier: &core.DataSource_InlineBytes{
+					InlineBytes: s.OcspStaple,
+				},
+			}
+		}
 	}
 	return secret
 }

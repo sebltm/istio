@@ -35,6 +35,7 @@ import (
 	"istio.io/istio/pkg/spiffe"
 	"istio.io/istio/pkg/util/sets"
 	"istio.io/istio/security/pkg/monitoring"
+	"istio.io/istio/security/pkg/nodeagent/ocsp"
 	nodeagentutil "istio.io/istio/security/pkg/nodeagent/util"
 	pkiutil "istio.io/istio/security/pkg/pki/util"
 	istiolog "istio.io/pkg/log"
@@ -271,6 +272,16 @@ func (sc *SecretManagerClient) GenerateSecret(resourceName string) (secret *secu
 		if err != nil {
 			return nil, err
 		}
+		if sc.configOptions.OcspStaple && ocsp.CheckOcspExpired(ns.OcspStaple, ns.CertificateChain) {
+			istiolog.Debug("OCSP staple expired, renewing now")
+			ocspStaple, err := ocsp.GenerateOcspStaple(sc.configOptions.OcspMode, ns.CertificateChain)
+			if err != nil && sc.configOptions.OcspMode == security.Optional {
+				err = nil
+			}
+			ns.OcspStaple = ocspStaple
+			return ns, err
+		}
+
 		return ns, nil
 	}
 
@@ -286,6 +297,16 @@ func (sc *SecretManagerClient) GenerateSecret(resourceName string) (secret *secu
 	// Now that we got the lock, look at cache again before sending request to avoid overwhelming CA
 	ns = sc.getCachedSecret(resourceName)
 	if ns != nil {
+		if sc.configOptions.OcspStaple && ocsp.CheckOcspExpired(ns.OcspStaple, ns.CertificateChain) {
+			istiolog.Debug("OCSP staple expired, renewing now")
+			ocspStaple, err := ocsp.GenerateOcspStaple(sc.configOptions.OcspMode, ns.CertificateChain)
+			if err != nil && sc.configOptions.OcspMode == security.Optional {
+				err = nil
+			}
+			ns.OcspStaple = ocspStaple
+			return ns, err
+		}
+
 		return ns, nil
 	}
 
@@ -313,6 +334,16 @@ func (sc *SecretManagerClient) GenerateSecret(resourceName string) (secret *secu
 			sc.cache.SetRoot(ns.RootCert)
 			sc.OnSecretUpdate(security.RootCertReqResourceName)
 		}
+	}
+
+	if sc.configOptions.OcspStaple && ocsp.CheckOcspExpired(ns.OcspStaple, ns.CertificateChain) {
+		istiolog.Debug("OCSP staple expired, renewing now")
+		ocspStaple, err := ocsp.GenerateOcspStaple(sc.configOptions.OcspMode, ns.CertificateChain)
+		if err != nil && sc.configOptions.OcspMode == security.Optional {
+			err = nil
+		}
+		ns.OcspStaple = ocspStaple
+		return ns, err
 	}
 
 	return ns, nil

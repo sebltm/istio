@@ -38,6 +38,8 @@ import (
 	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/controllers"
+	"istio.io/istio/pkg/security"
+	"istio.io/istio/security/pkg/nodeagent/ocsp"
 	"istio.io/pkg/log"
 )
 
@@ -183,6 +185,11 @@ func (s *CredentialsController) GetKeyAndCert(name, namespace string) (key []byt
 	}
 
 	return extractKeyAndCert(k8sSecret)
+}
+
+func (s *CredentialsController) GetOcspStaple(name string, certBytes []byte) (ocspStaple []byte, err error) {
+	ocspStaple, err = ocsp.GenerateOcspStaple(security.Optional, certBytes)
+	return
 }
 
 func (s *CredentialsController) GetCaCert(name, namespace string) (cert []byte, err error) {

@@ -249,6 +249,11 @@ type Options struct {
 	KeyFilePath string
 	// The path for an existing root certificate bundle
 	RootCertFilePath string
+
+	// Whether to request a staple
+	OcspStaple bool
+	// How important is it to have a staple
+	OcspMode OcspMode
 }
 
 // TokenManager contains methods for generating token.
@@ -293,6 +298,13 @@ type StsRequestParameters struct {
 	ActorTokenType string
 }
 
+type OcspMode int64
+
+const (
+	Optional OcspMode = iota
+	Mandatory
+)
+
 // Client interface defines the clients need to implement to talk to CA for CSR.
 // The Agent will create a key pair and a CSR, and use an implementation of this
 // interface to get back a signed certificate. There is no guarantee that the SAN
@@ -327,6 +339,8 @@ type SecretItem struct {
 	PrivateKey       []byte
 
 	RootCert []byte
+
+	OcspStaple []byte
 
 	// ResourceName passed from envoy SDS discovery request.
 	// "ROOTCA" for root cert request, "default" for key/cert request.

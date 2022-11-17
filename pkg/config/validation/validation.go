@@ -655,6 +655,11 @@ func validateTLSOptions(tls *networking.ServerTLSSettings) (v Validation) {
 			v = appendValidation(v, fmt.Errorf("MUTUAL TLS requires a client CA bundle"))
 		}
 	}
+	if tls.Mode == networking.ServerTLSSettings_PASSTHROUGH || tls.Mode == networking.ServerTLSSettings_AUTO_PASSTHROUGH {
+		if tls.OcspStapling {
+			v = appendValidation(v, fmt.Errorf("OCSP Staple requires SIMPLE TLS"))
+		}
+	}
 	return
 }
 

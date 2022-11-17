@@ -20,6 +20,7 @@ import (
 
 type Controller interface {
 	GetKeyAndCert(name, namespace string) (key []byte, cert []byte, err error)
+	GetOcspStaple(name string, certBytes []byte) (ocspStaple []byte, err error)
 	GetCaCert(name, namespace string) (cert []byte, err error)
 	GetDockerCredential(name, namespace string) (cred []byte, err error)
 	Authorize(serviceAccount, namespace string) error

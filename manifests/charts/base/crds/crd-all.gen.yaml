@@ -2954,6 +2954,13 @@ spec:
                           - AUTO_PASSTHROUGH
                           - ISTIO_MUTUAL
                           type: string
+                        ocspStapleMode:
+                          enum:
+                          - MANDATORY
+                          - OPTIONAL
+                          type: string
+                        ocspStapling:
+                          type: boolean
                         privateKey:
                           description: REQUIRED if mode is `SIMPLE` or `MUTUAL`.
                           type: string
@@ -3070,6 +3077,13 @@ spec:
                           - AUTO_PASSTHROUGH
                           - ISTIO_MUTUAL
                           type: string
+                        ocspStapleMode:
+                          enum:
+                          - MANDATORY
+                          - OPTIONAL
+                          type: string
+                        ocspStapling:
+                          type: boolean
                         privateKey:
                           description: REQUIRED if mode is `SIMPLE` or `MUTUAL`.
                           type: string
@@ -3577,6 +3591,13 @@ spec:
                           - AUTO_PASSTHROUGH
                           - ISTIO_MUTUAL
                           type: string
+                        ocspStapleMode:
+                          enum:
+                          - MANDATORY
+                          - OPTIONAL
+                          type: string
+                        ocspStapling:
+                          type: boolean
                         privateKey:
                           description: REQUIRED if mode is `SIMPLE` or `MUTUAL`.
                           type: string
@@ -3750,6 +3771,13 @@ spec:
                           - AUTO_PASSTHROUGH
                           - ISTIO_MUTUAL
                           type: string
+                        ocspStapleMode:
+                          enum:
+                          - MANDATORY
+                          - OPTIONAL
+                          type: string
+                        ocspStapling:
+                          type: boolean
                         privateKey:
                           description: REQUIRED if mode is `SIMPLE` or `MUTUAL`.
                           type: string
