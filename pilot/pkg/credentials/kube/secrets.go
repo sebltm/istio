@@ -187,8 +187,8 @@ func (s *CredentialsController) GetKeyAndCert(name, namespace string) (key []byt
 	return extractKeyAndCert(k8sSecret)
 }
 
-func (s *CredentialsController) GetOcspStaple(name string, certBytes []byte) (ocspStaple []byte, err error) {
-	ocspStaple, err = ocsp.GenerateOcspStaple(security.Optional, certBytes)
+func (s *CredentialsController) GetOcspStaple(name string, ocspStaplingMode security.OcspMode, certBytes []byte) (ocspStaple []byte, err error) {
+	ocspStaple, err = ocsp.GenerateOcspStaple(ocspStaplingMode, certBytes)
 	return
 }
 

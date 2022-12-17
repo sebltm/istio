@@ -298,11 +298,11 @@ type StsRequestParameters struct {
 	ActorTokenType string
 }
 
-type OcspMode int64
+type OcspMode string
 
 const (
-	Optional OcspMode = iota
-	Mandatory
+	Optional  OcspMode = "Optional"
+	Mandatory OcspMode = "Mandatory"
 )
 
 // Client interface defines the clients need to implement to talk to CA for CSR.

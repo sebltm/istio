@@ -132,8 +132,8 @@ func (a *AggregateController) GetKeyAndCert(name, namespace string) (key []byte,
 	return nil, nil, firstError
 }
 
-func (a *AggregateController) GetOcspStaple(name string, certBytes []byte) (ocspStaple []byte, err error) {
-	ocspStaple, err = ocsp.GenerateOcspStaple(security.Optional, certBytes)
+func (a *AggregateController) GetOcspStaple(name string, ocspStapleMode security.OcspMode, certBytes []byte) (ocspStaple []byte, err error) {
+	ocspStaple, err = ocsp.GenerateOcspStaple(ocspStapleMode, certBytes)
 	return
 }
 

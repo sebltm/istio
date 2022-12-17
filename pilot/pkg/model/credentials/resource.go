@@ -48,6 +48,8 @@ type SecretResource struct {
 	ResourceName string
 	// Cluster is the cluster the secret should be fetched from.
 	Cluster cluster.ID
+	// AdditionalAttributes represents attributes linked to the SecretResource
+	AdditionalAttributes map[string]interface{}
 }
 
 func (sr SecretResource) Key() string {
