@@ -18,6 +18,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
+	networking "istio.io/api/networking/v1alpha3"
 
 	mesh "istio.io/api/mesh/v1alpha1"
 	credscontroller "istio.io/istio/pilot/pkg/credentials"
@@ -37,6 +39,7 @@ import (
 	"istio.io/istio/pilot/pkg/util/protoconv"
 	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/config/schema/kind"
+	"istio.io/istio/pkg/security"
 )
 
 // SecretResource wraps the authnmodel type with cache functions implemented
@@ -44,7 +47,11 @@ type SecretResource struct {
 	credentials.SecretResource
 }
 
-var _ model.XdsCacheEntry = SecretResource{}
+var (
+	_                   model.XdsCacheEntry = SecretResource{}
+	ocspStaplingEnabled string              = "ocspStaplingEnabled"
+	ocspStaplingMode    string              = "ocspStaplingMode"
+)
 
 // DependentTypes is not needed; we know exactly which configs impact SDS, so we can scope at DependentConfigs level
 func (sr SecretResource) DependentTypes() []kind.Kind {
@@ -77,7 +84,7 @@ func sdsNeedsPush(updates model.XdsUpdates) bool {
 
 // parseResources parses a list of resource names to SecretResource types, for a given proxy.
 // Invalid resource names are ignored
-func (s *SecretGen) parseResources(names []string, proxy *model.Proxy) []SecretResource {
+func (s *SecretGen) parseResources(names []string, additionalAttributes map[string]map[string]interface{}, proxy *model.Proxy) []SecretResource {
 	res := make([]SecretResource, 0, len(names))
 	for _, resource := range names {
 		sr, err := credentials.ParseResourceName(resource, proxy.VerifiedIdentity.Namespace, proxy.Metadata.ClusterID, s.configCluster)
@@ -85,6 +92,11 @@ func (s *SecretGen) parseResources(names []string, proxy *model.Proxy) []SecretR
 			pilotSDSCertificateErrors.Increment()
 			log.Warnf("error parsing resource name: %v", err)
 			continue
+		}
+		if secretAttributes, ok := additionalAttributes[sr.Name]; ok {
+			sr.AdditionalAttributes = secretAttributes
+		} else {
+			sr.AdditionalAttributes = make(map[string]interface{})
 		}
 		res = append(res, SecretResource{sr})
 	}
@@ -121,7 +133,9 @@ func (s *SecretGen) Generate(proxy *model.Proxy, w *model.WatchedResource, req *
 	// Filter down to resources we can access. We do not return an error if they attempt to access a Secret
 	// they cannot; instead we just exclude it. This ensures that a single bad reference does not break the whole
 	// SDS flow. The pilotSDSCertificateErrors metric and logs handle visibility into invalid references.
-	resources := filterAuthorizedResources(s.parseResources(w.ResourceNames, proxy), proxy, proxyClusterSecrets)
+	resources := filterAuthorizedResources(s.parseResources(w.ResourceNames, w.ResourceAttributes, proxy), proxy, proxyClusterSecrets)
+	// Fetch additional attributes for these resources (e.g whether OCSP stapling is enabled)
+	resources = s.AddAdditionalAttributes(proxy, resources)
 
 	results := model.Resources{}
 	cached, regenerated := 0, 0
@@ -152,6 +166,61 @@ func (s *SecretGen) Generate(proxy *model.Proxy, w *model.WatchedResource, req *
 		Incremental:    updatedSecrets != nil,
 		AdditionalInfo: fmt.Sprintf("cached:%v/%v", cached, cached+regenerated),
 	}, nil
+}
+
+func (s *SecretGen) AddAdditionalAttributes(proxy *model.Proxy, resources []SecretResource) []SecretResource {
+
+	gateways := proxy.MergedGateway
+	if gateways == nil {
+		log.Warnf("No Gateways for proxy on %+v", proxy.Metadata.InstanceIPs)
+		return resources
+	}
+
+	serverPorts := gateways.ServerPorts
+	if serverPorts == nil {
+		log.Infof("Gateways for proxy on %+v have no server ports defined", proxy.Metadata.InstanceIPs)
+		return resources
+	}
+
+	// Get a mapping of certificate resource name (e.g Kubernetes Secret) to Server
+	certToServer := make(map[string]*networking.Server)
+	for _, serverPort := range serverPorts {
+
+		mergedServers, ok := gateways.MergedServers[serverPort]
+		if !ok || mergedServers == nil {
+			log.Infof("Gateway has no servers for port %d", serverPort)
+			continue
+		}
+
+		for _, server := range mergedServers.Servers {
+			if server == nil {
+				log.Infof("Server is nil, cannot fetch additional attributes")
+				continue
+			}
+
+			certToServer[server.Tls.CredentialName] = server
+		}
+	}
+
+	// For each resource, find the Server associated and fetch additional attributes
+	for _, resource := range resources {
+		server, ok := certToServer[resource.ResourceName]
+		if !ok {
+			log.Infof("No server for resource %s", resource.ResourceName)
+			continue
+		}
+
+		serverTls := server.Tls
+		if serverTls == nil {
+			log.Infof("Server %s has no TLS settings!", server.Name)
+			continue
+		}
+
+		resource.AdditionalAttributes[ocspStaplingEnabled] = serverTls.OcspStapling
+		resource.AdditionalAttributes[ocspStaplingMode] = serverTls.OcspStapleMode
+	}
+
+	return resources
 }
 
 func (s *SecretGen) generate(sr SecretResource, configClusterSecrets, proxyClusterSecrets credscontroller.Controller, proxy *model.Proxy) *discovery.Resource {
@@ -195,11 +264,39 @@ func (s *SecretGen) generate(sr SecretResource, configClusterSecrets, proxyClust
 		}
 	}
 
-	ocspStaple, err := secretController.GetOcspStaple(sr.Name, cert)
+	// Fetch an OCSP staple
+	var ocspStaple []byte
+	staplingEnabledRaw := "false"
+	staplingEnabled := false
+
+	// Check whether stapling is enabled for this certificate
+	// Default is to disable OCSP Stapling
+	staplingEnabledRaw, ok := sr.AdditionalAttributes[ocspStaplingEnabled].(string)
+	if !ok {
+		staplingEnabledRaw = "false"
+	}
+
+	staplingEnabled, err = strconv.ParseBool(staplingEnabledRaw)
 	if err != nil {
-		pilotSDSCertificateErrors.Increment()
-		log.Warnf("failed to fetch OCSP staple for %s: %v", sr.ResourceName, err)
-		return nil
+		staplingEnabled = false
+	}
+
+	if staplingEnabled {
+		// Check the OCSP Stapling Mode
+		// Default is Optional
+		staplingModeRaw, ok := sr.AdditionalAttributes[ocspStaplingMode].(string)
+		if !ok {
+			staplingModeRaw = "Optional"
+		}
+
+		staplingMode := security.OcspMode(staplingModeRaw)
+
+		ocspStaple, err = secretController.GetOcspStaple(sr.Name, staplingMode, cert)
+		if err != nil {
+			pilotSDSCertificateErrors.Increment()
+			log.Warnf("failed to fetch OCSP staple for %s: %v", sr.ResourceName, err)
+			return nil
+		}
 	}
 
 	res := toEnvoyKeyCertSecret(sr.ResourceName, key, cert, ocspStaple, proxy, s.meshConfig)

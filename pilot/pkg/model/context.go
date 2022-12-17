@@ -41,7 +41,6 @@ import (
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/mesh"
 	"istio.io/istio/pkg/network"
-	"istio.io/istio/pkg/security"
 	"istio.io/istio/pkg/spiffe"
 	"istio.io/istio/pkg/util/identifier"
 	"istio.io/istio/pkg/util/protomarshal"
@@ -342,6 +341,8 @@ type WatchedResource struct {
 	// For Delta Xds, all resources of the TypeUrl that a client has subscribed to.
 	ResourceNames []string
 
+	ResourceAttributes map[string]map[string]interface{}
+
 	// NonceSent is the nonce sent in the last sent response. If it is equal with NonceAcked, the
 	// last message has been processed. If empty: we never sent a message of this type.
 	NonceSent string
@@ -586,11 +587,6 @@ type NodeMetadata struct {
 	TLSClientKey string `json:"TLS_CLIENT_KEY,omitempty"`
 	// TLSClientRootCert is the absolute path to client root cert file
 	TLSClientRootCert string `json:"TLS_CLIENT_ROOT_CERT,omitempty"`
-
-	// OcspStapling specifies whether or not OCSP stapling is enabled for this proxy
-	OcspStapling bool
-	// OcspStaplingPolicy specifies the failure mode for the stapling
-	OcspStaplingPolicy security.OcspMode
 
 	CertBaseDir string `json:"BASE,omitempty"`
 
