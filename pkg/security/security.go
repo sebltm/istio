@@ -249,11 +249,6 @@ type Options struct {
 	KeyFilePath string
 	// The path for an existing root certificate bundle
 	RootCertFilePath string
-
-	// Whether to request a staple
-	OcspStaple bool
-	// How important is it to have a staple
-	OcspMode OcspMode
 }
 
 // TokenManager contains methods for generating token.
@@ -304,6 +299,20 @@ const (
 	Optional  OcspMode = "Optional"
 	Mandatory OcspMode = "Mandatory"
 )
+
+func ParseOcspMode(s string) (om OcspMode, err error) {
+	ocspModes := map[OcspMode]struct{}{
+		Optional:  {},
+		Mandatory: {},
+	}
+
+	ocspMode := OcspMode(s)
+	_, ok := ocspModes[ocspMode]
+	if !ok {
+		return om, fmt.Errorf(`cannot parse:[%s] as capability`, s)
+	}
+	return ocspMode, nil
+}
 
 // Client interface defines the clients need to implement to talk to CA for CSR.
 // The Agent will create a key pair and a CSR, and use an implementation of this

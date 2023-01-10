@@ -26,6 +26,7 @@ var (
 	MutatingWebhookConfiguration = config.GroupVersionKind{Group: "admissionregistration.k8s.io", Version: "v1", Kind: "MutatingWebhookConfiguration"}
 	Namespace = config.GroupVersionKind{Group: "", Version: "v1", Kind: "Namespace"}
 	Node = config.GroupVersionKind{Group: "", Version: "v1", Kind: "Node"}
+	OCSPStaple = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "OCSPStaple"}
 	PeerAuthentication = config.GroupVersionKind{Group: "security.istio.io", Version: "v1beta1", Kind: "PeerAuthentication"}
 	Pod = config.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"}
 	ProxyConfig = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1beta1", Kind: "ProxyConfig"}

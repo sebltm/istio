@@ -913,12 +913,6 @@ func (a *Agent) newSecretManager() (*cache.SecretManagerClient, error) {
 		return nil, err
 	}
 
-	if a.secOpts.OcspStaple {
-		log.Info("OCSP stapling is enabled")
-	} else {
-		log.Info("OCSP stapling is disabled")
-	}
-
 	return cache.NewSecretManagerClient(caClient, a.secOpts)
 }
 

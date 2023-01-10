@@ -27,6 +27,7 @@ import (
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/security"
 	"istio.io/istio/security/pkg/k8s/chiron"
+	"istio.io/istio/security/pkg/nodeagent/ocsp"
 	"istio.io/pkg/log"
 )
 
@@ -181,6 +182,10 @@ func (s *Server) initDNSCerts() error {
 	}
 	s.istiodCertBundleWatcher.SetAndNotify(keyPEM, certChain, caBundle)
 	return nil
+}
+
+func (s *Server) initOCSPHandler() {
+	ocsp.GetOcspClient()
 }
 
 // TODO(hzxuzonghu): support async notification instead of polling the CA root cert.

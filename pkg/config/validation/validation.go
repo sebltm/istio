@@ -656,8 +656,8 @@ func validateTLSOptions(tls *networking.ServerTLSSettings) (v Validation) {
 		}
 	}
 	if tls.Mode == networking.ServerTLSSettings_PASSTHROUGH || tls.Mode == networking.ServerTLSSettings_AUTO_PASSTHROUGH {
-		if tls.OcspStapling {
-			v = appendValidation(v, fmt.Errorf("OCSP Staple requires SIMPLE TLS"))
+		if tls.Ocsp.Stapling.Enabled {
+			v = appendValidation(v, fmt.Errorf("OCSP Staple requires SIMPLE or ISTIO_MUTUAL TLS"))
 		}
 	}
 	return

@@ -60,6 +60,16 @@ func (sr SecretResource) KubernetesResourceName() string {
 	return fmt.Sprintf("%s://%s/%s", sr.Type, sr.Namespace, sr.Name)
 }
 
+func (sr *SecretResource) AddAdditionalAttributes(additionalAttribute map[string]interface{}) {
+	if sr.AdditionalAttributes == nil {
+		sr.AdditionalAttributes = make(map[string]interface{})
+	}
+
+	for key, value := range additionalAttribute {
+		sr.AdditionalAttributes[key] = value
+	}
+}
+
 func ToKubernetesGatewayResource(namespace, name string) string {
 	if strings.HasPrefix(name, BuiltinGatewaySecretTypeURI) {
 		return BuiltinGatewaySecretTypeURI

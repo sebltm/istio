@@ -519,8 +519,13 @@ func (s *Server) initSDSServer() {
 						Name:      name,
 						Namespace: namespace,
 					}: {},
+					{
+						Kind:      kind.OCSPStaple,
+						Name:      name,
+						Namespace: namespace,
+					}: {},
 				},
-				Reason: []model.TriggerReason{model.SecretTrigger},
+				Reason: []model.TriggerReason{model.SecretTrigger, model.OcspStapleUpdate},
 			})
 		})
 		s.XDSServer.Generators[v3.SecretType] = xds.NewSecretGen(creds, s.XDSServer.Cache, s.clusterID, s.environment.Mesh())

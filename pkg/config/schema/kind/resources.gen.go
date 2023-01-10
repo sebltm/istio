@@ -26,6 +26,7 @@ const (
 	MutatingWebhookConfiguration
 	Namespace
 	Node
+	OCSPStaple
 	PeerAuthentication
 	Pod
 	ProxyConfig
@@ -81,6 +82,8 @@ func (k Kind) String() string {
 		return "Namespace"
 	case Node:
 		return "Node"
+	case OCSPStaple:
+		return "OCSPStaple"
 	case PeerAuthentication:
 		return "PeerAuthentication"
 	case Pod:
@@ -171,6 +174,9 @@ func FromGvk(gvk config.GroupVersionKind) Kind {
 	}
 	if gvk.Kind == "Node" && gvk.Group == "" && gvk.Version == "v1" {
 		return Node
+	}
+	if gvk.Kind == "OCSPStaple" && gvk.Group == "networking.istio.io" && gvk.Version == "v1alpha3" {
+		return OCSPStaple
 	}
 	if gvk.Kind == "PeerAuthentication" && gvk.Group == "security.istio.io" && gvk.Version == "v1beta1" {
 		return PeerAuthentication
