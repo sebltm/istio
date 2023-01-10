@@ -194,6 +194,7 @@ var (
 		"httproutes":                    "HTTPRoutes",
 		"tcproutes":                     "TCPRoutes",
 		"tlsroutes":                     "TLSRoutes",
+		"ocspstaples":                   "OCSPStaples",
 		"referencepolicies":             "ReferencePolicies",
 		"referencegrants":               "ReferenceGrants",
 		"telemetries":                   "Telemetries",

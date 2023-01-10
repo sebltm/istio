@@ -74,6 +74,11 @@ func create(ic versionedclient.Interface, sc gatewayapiclient.Interface, cfg con
 			ObjectMeta: objMeta,
 			Spec:       *(cfg.Spec.(*networkingv1alpha3.Gateway)),
 		}, metav1.CreateOptions{})
+	case networking_istio_io_v1alpha3_OCSPStaple:
+		return ic.NetworkingV1alpha3().OCSPStaples(cfg.Namespace).Create(context.TODO(), &clientnetworkingv1alpha3.OCSPStaple{
+			ObjectMeta: objMeta,
+			Spec:       *(cfg.Spec.(*networkingv1alpha3.OCSPStaple)),
+		}, metav1.CreateOptions{})
 	case networking_istio_io_v1alpha3_ServiceEntry:
 		return ic.NetworkingV1alpha3().ServiceEntries(cfg.Namespace).Create(context.TODO(), &clientnetworkingv1alpha3.ServiceEntry{
 			ObjectMeta: objMeta,
@@ -200,6 +205,11 @@ func update(ic versionedclient.Interface, sc gatewayapiclient.Interface, cfg con
 		return ic.NetworkingV1alpha3().Gateways(cfg.Namespace).Update(context.TODO(), &clientnetworkingv1alpha3.Gateway{
 			ObjectMeta: objMeta,
 			Spec:       *(cfg.Spec.(*networkingv1alpha3.Gateway)),
+		}, metav1.UpdateOptions{})
+	case networking_istio_io_v1alpha3_OCSPStaple:
+		return ic.NetworkingV1alpha3().OCSPStaples(cfg.Namespace).Update(context.TODO(), &clientnetworkingv1alpha3.OCSPStaple{
+			ObjectMeta: objMeta,
+			Spec:       *(cfg.Spec.(*networkingv1alpha3.OCSPStaple)),
 		}, metav1.UpdateOptions{})
 	case networking_istio_io_v1alpha3_ServiceEntry:
 		return ic.NetworkingV1alpha3().ServiceEntries(cfg.Namespace).Update(context.TODO(), &clientnetworkingv1alpha3.ServiceEntry{
@@ -329,6 +339,12 @@ func updateStatus(ic versionedclient.Interface, sc gatewayapiclient.Interface, c
 
 	case networking_istio_io_v1alpha3_Gateway:
 		return ic.NetworkingV1alpha3().Gateways(cfg.Namespace).UpdateStatus(context.TODO(), &clientnetworkingv1alpha3.Gateway{
+			ObjectMeta: objMeta,
+			Status:     *(cfg.Status.(*metav1alpha1.IstioStatus)),
+		}, metav1.UpdateOptions{})
+
+	case networking_istio_io_v1alpha3_OCSPStaple:
+		return ic.NetworkingV1alpha3().OCSPStaples(cfg.Namespace).UpdateStatus(context.TODO(), &clientnetworkingv1alpha3.OCSPStaple{
 			ObjectMeta: objMeta,
 			Status:     *(cfg.Status.(*metav1alpha1.IstioStatus)),
 		}, metav1.UpdateOptions{})
@@ -510,6 +526,21 @@ func patch(ic versionedclient.Interface, sc gatewayapiclient.Interface, orig con
 			return nil, err
 		}
 		return ic.NetworkingV1alpha3().Gateways(orig.Namespace).
+			Patch(context.TODO(), orig.Name, typ, patchBytes, metav1.PatchOptions{FieldManager: "pilot-discovery"})
+	case networking_istio_io_v1alpha3_OCSPStaple:
+		oldRes := &clientnetworkingv1alpha3.OCSPStaple{
+			ObjectMeta: origMeta,
+			Spec:       *(orig.Spec.(*networkingv1alpha3.OCSPStaple)),
+		}
+		modRes := &clientnetworkingv1alpha3.OCSPStaple{
+			ObjectMeta: modMeta,
+			Spec:       *(mod.Spec.(*networkingv1alpha3.OCSPStaple)),
+		}
+		patchBytes, err := genPatchBytes(oldRes, modRes, typ)
+		if err != nil {
+			return nil, err
+		}
+		return ic.NetworkingV1alpha3().OCSPStaples(orig.Namespace).
 			Patch(context.TODO(), orig.Name, typ, patchBytes, metav1.PatchOptions{FieldManager: "pilot-discovery"})
 	case networking_istio_io_v1alpha3_ServiceEntry:
 		oldRes := &clientnetworkingv1alpha3.ServiceEntry{
@@ -830,6 +861,8 @@ func delete(ic versionedclient.Interface, sc gatewayapiclient.Interface, typ con
 		return ic.NetworkingV1alpha3().EnvoyFilters(namespace).Delete(context.TODO(), name, deleteOptions)
 	case networking_istio_io_v1alpha3_Gateway:
 		return ic.NetworkingV1alpha3().Gateways(namespace).Delete(context.TODO(), name, deleteOptions)
+	case networking_istio_io_v1alpha3_OCSPStaple:
+		return ic.NetworkingV1alpha3().OCSPStaples(namespace).Delete(context.TODO(), name, deleteOptions)
 	case networking_istio_io_v1alpha3_ServiceEntry:
 		return ic.NetworkingV1alpha3().ServiceEntries(namespace).Delete(context.TODO(), name, deleteOptions)
 	case networking_istio_io_v1alpha3_Sidecar:
@@ -879,6 +912,7 @@ var extensions_istio_io_v1alpha1_WasmPlugin = config.GroupVersionKind{Group: "ex
 var networking_istio_io_v1alpha3_DestinationRule = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "DestinationRule"}
 var networking_istio_io_v1alpha3_EnvoyFilter = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "EnvoyFilter"}
 var networking_istio_io_v1alpha3_Gateway = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "Gateway"}
+var networking_istio_io_v1alpha3_OCSPStaple = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "OCSPStaple"}
 var networking_istio_io_v1alpha3_ServiceEntry = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "ServiceEntry"}
 var networking_istio_io_v1alpha3_Sidecar = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "Sidecar"}
 var networking_istio_io_v1alpha3_VirtualService = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "VirtualService"}
@@ -978,6 +1012,26 @@ var translationMap = map[config.GroupVersionKind]func(r runtime.Object) config.C
 		return config.Config{
 			Meta: config.Meta{
 				GroupVersionKind:  networking_istio_io_v1alpha3_Gateway,
+				Name:              obj.Name,
+				Namespace:         obj.Namespace,
+				Labels:            obj.Labels,
+				Annotations:       obj.Annotations,
+				ResourceVersion:   obj.ResourceVersion,
+				CreationTimestamp: obj.CreationTimestamp.Time,
+				OwnerReferences:   obj.OwnerReferences,
+				UID:               string(obj.UID),
+				Generation:        obj.Generation,
+			},
+			Spec:   &obj.Spec,
+			Status: &obj.Status,
+		}
+	},
+
+	networking_istio_io_v1alpha3_OCSPStaple: func(r runtime.Object) config.Config {
+		obj := r.(*clientnetworkingv1alpha3.OCSPStaple)
+		return config.Config{
+			Meta: config.Meta{
+				GroupVersionKind:  networking_istio_io_v1alpha3_OCSPStaple,
 				Name:              obj.Name,
 				Namespace:         obj.Namespace,
 				Labels:            obj.Labels,

@@ -392,6 +392,8 @@ const (
 	NamespaceUpdate TriggerReason = "namespace"
 	// ClusterUpdate describes a push triggered by a Cluster change
 	ClusterUpdate TriggerReason = "cluster"
+	// OcspStapleUpdate describes a push triggered by a OCSP Staple change
+	OcspStapleUpdate TriggerReason = "ocspstaple"
 )
 
 // Merge two update requests together
@@ -1243,6 +1245,8 @@ func (ps *PushContext) updateContext(
 			gatewayAPIChanged = true
 			// VS and GW are derived from gatewayAPI, so if it changed we need to update those as well
 			virtualServicesChanged = true
+			gatewayChanged = true
+		case kind.OCSPStaple:
 			gatewayChanged = true
 		case kind.Telemetry:
 			telemetryChanged = true

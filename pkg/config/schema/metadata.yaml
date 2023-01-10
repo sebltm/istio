@@ -78,6 +78,11 @@ collections:
     group: "networking.istio.io"
     pilot: true
 
+  - name: "istio/networking/v1alpha3/ocspstaples"
+    kind: "OCSPStaple"
+    group: "networking.istio.io"
+    pilot: true
+
   - name: "istio/security/v1beta1/authorizationpolicies"
     kind: AuthorizationPolicy
     group: "security.istio.io"
@@ -352,6 +357,18 @@ resources:
     proto: "istio.networking.v1alpha3.Gateway"
     protoPackage: "istio.io/api/networking/v1alpha3"
     description: "describes a gateway (how a proxy is exposed on the network)"
+    statusProto: "istio.meta.v1alpha1.IstioStatus"
+    statusProtoPackage: "istio.io/api/meta/v1alpha1"
+  
+  - kind: "OCSPStaple"
+    plural: "ocspstaples"
+    group: "networking.istio.io"
+    version: "v1alpha3"
+    versionAliases:
+      - "v1beta1"
+    proto: "istio.networking.v1alpha3.OCSPStaple"
+    protoPackage: "istio.io/api/networking/v1alpha3"
+    description: "defines an OCSP staple for a certificate"
     statusProto: "istio.meta.v1alpha1.IstioStatus"
     statusProtoPackage: "istio.io/api/meta/v1alpha1"
 

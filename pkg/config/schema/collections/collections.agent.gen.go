@@ -140,6 +140,27 @@ var (
 		}.MustBuild(),
 	}.MustBuild()
 
+	// IstioNetworkingV1Alpha3Ocspstaples describes the collection
+	// istio/networking/v1alpha3/ocspstaples
+	IstioNetworkingV1Alpha3Ocspstaples = collection.Builder{
+		Name:         "istio/networking/v1alpha3/ocspstaples",
+		VariableName: "IstioNetworkingV1Alpha3Ocspstaples",
+		Resource: resource.Builder{
+			Group:   "networking.istio.io",
+			Kind:    "OCSPStaple",
+			Plural:  "ocspstaples",
+			Version: "v1alpha3",
+			VersionAliases: []string{
+				"v1beta1",
+			},
+			Proto: "istio.networking.v1alpha3.OCSPStaple", StatusProto: "istio.meta.v1alpha1.IstioStatus",
+			ReflectType: reflect.TypeOf(&istioioapinetworkingv1alpha3.OCSPStaple{}).Elem(), StatusType: reflect.TypeOf(&istioioapimetav1alpha1.IstioStatus{}).Elem(),
+			ProtoPackage: "istio.io/api/networking/v1alpha3", StatusPackage: "istio.io/api/meta/v1alpha1",
+			ClusterScoped: false,
+			ValidateProto: validation.EmptyValidate,
+		}.MustBuild(),
+	}.MustBuild()
+
 	// IstioNetworkingV1Alpha3Serviceentries describes the collection
 	// istio/networking/v1alpha3/serviceentries
 	IstioNetworkingV1Alpha3Serviceentries = collection.Builder{
@@ -343,6 +364,7 @@ var (
 		MustAdd(IstioNetworkingV1Alpha3Destinationrules).
 		MustAdd(IstioNetworkingV1Alpha3Envoyfilters).
 		MustAdd(IstioNetworkingV1Alpha3Gateways).
+		MustAdd(IstioNetworkingV1Alpha3Ocspstaples).
 		MustAdd(IstioNetworkingV1Alpha3Serviceentries).
 		MustAdd(IstioNetworkingV1Alpha3Sidecars).
 		MustAdd(IstioNetworkingV1Alpha3Virtualservices).
@@ -363,6 +385,7 @@ var (
 		MustAdd(IstioNetworkingV1Alpha3Destinationrules).
 		MustAdd(IstioNetworkingV1Alpha3Envoyfilters).
 		MustAdd(IstioNetworkingV1Alpha3Gateways).
+		MustAdd(IstioNetworkingV1Alpha3Ocspstaples).
 		MustAdd(IstioNetworkingV1Alpha3Serviceentries).
 		MustAdd(IstioNetworkingV1Alpha3Sidecars).
 		MustAdd(IstioNetworkingV1Alpha3Virtualservices).
@@ -390,6 +413,7 @@ var (
 		MustAdd(IstioNetworkingV1Alpha3Destinationrules).
 		MustAdd(IstioNetworkingV1Alpha3Envoyfilters).
 		MustAdd(IstioNetworkingV1Alpha3Gateways).
+		MustAdd(IstioNetworkingV1Alpha3Ocspstaples).
 		MustAdd(IstioNetworkingV1Alpha3Serviceentries).
 		MustAdd(IstioNetworkingV1Alpha3Sidecars).
 		MustAdd(IstioNetworkingV1Alpha3Virtualservices).
@@ -408,6 +432,7 @@ var (
 			MustAdd(IstioNetworkingV1Alpha3Destinationrules).
 			MustAdd(IstioNetworkingV1Alpha3Envoyfilters).
 			MustAdd(IstioNetworkingV1Alpha3Gateways).
+			MustAdd(IstioNetworkingV1Alpha3Ocspstaples).
 			MustAdd(IstioNetworkingV1Alpha3Serviceentries).
 			MustAdd(IstioNetworkingV1Alpha3Sidecars).
 			MustAdd(IstioNetworkingV1Alpha3Virtualservices).
