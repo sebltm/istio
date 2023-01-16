@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/genproto/googleapis/devtools/cloudtrace/v1"
+	"google.golang.org/api/cloudtrace/v1"
 	loggingpb "google.golang.org/genproto/googleapis/logging/v2"
 	monitoring "google.golang.org/genproto/googleapis/monitoring/v3"
 	"google.golang.org/protobuf/proto"

@@ -198,10 +198,12 @@ func BuildListenerTLSContext(serverTLSSettings *networking.ServerTLSSettings,
 	}
 
 	// Set OCSP stapling configuration
-	if serverTLSSettings.Ocsp != nil && serverTLSSettings.Ocsp.Stapling != nil && serverTLSSettings.Ocsp.Stapling.Enabled {
+	if serverTLSSettings.Ocsp != nil && serverTLSSettings.Ocsp.Stapling != nil {
 		log.Debugf("OCSP Stapling is enabled with policy: %s", serverTLSSettings.Ocsp.Stapling.Mode.String())
 		if serverTLSSettings.Ocsp.Stapling.Enabled && serverTLSSettings.Ocsp.Stapling.Mode == networking.Stapling_MANDATORY {
 			ctx.OcspStaplePolicy = auth.DownstreamTlsContext_MUST_STAPLE
+		} else if serverTLSSettings.Ocsp.Stapling.Enabled && serverTLSSettings.Ocsp.Stapling.Mode == networking.Stapling_OPTIONAL {
+			ctx.OcspStaplePolicy = auth.DownstreamTlsContext_STRICT_STAPLING
 		} else {
 			ctx.OcspStaplePolicy = auth.DownstreamTlsContext_LENIENT_STAPLING
 		}

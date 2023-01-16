@@ -68,6 +68,7 @@ import (
 	"istio.io/istio/pkg/security"
 	"istio.io/istio/pkg/spiffe"
 	"istio.io/istio/security/pkg/k8s/chiron"
+	"istio.io/istio/security/pkg/nodeagent/ocsp"
 	"istio.io/istio/security/pkg/pki/ca"
 	"istio.io/istio/security/pkg/pki/ra"
 	"istio.io/istio/security/pkg/server/ca/authenticate"
@@ -226,6 +227,9 @@ func NewServer(args *PilotArgs, initFuncs ...func(*Server)) (*Server, error) {
 	if err := s.environment.InitNetworksManager(s.XDSServer); err != nil {
 		return nil, err
 	}
+
+	ocspClient := ocsp.GetOcspClient()
+	go ocspClient.MonitorOcspStaples()
 
 	// Options based on the current 'defaults' in istio.
 	caOpts := &caOptions{

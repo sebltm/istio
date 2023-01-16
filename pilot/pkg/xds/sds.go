@@ -18,7 +18,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -78,8 +77,6 @@ func sdsNeedsPush(updates model.XdsUpdates) bool {
 	if model.ConfigsHaveKind(updates, kind.Secret) ||
 		model.ConfigsHaveKind(updates, kind.OCSPStaple) ||
 		model.ConfigsHaveKind(updates, kind.Gateway) ||
-		model.ConfigsHaveKind(updates, kind.GatewayClass) ||
-		model.ConfigsHaveKind(updates, kind.KubernetesGateway) ||
 		model.ConfigsHaveKind(updates, kind.ReferencePolicy) ||
 		model.ConfigsHaveKind(updates, kind.ReferenceGrant) {
 		return true
@@ -112,10 +109,8 @@ func (s *SecretGen) Generate(proxy *model.Proxy, w *model.WatchedResource, req *
 		return nil, model.DefaultXdsLogDetails, nil
 	}
 	var updatedSecrets map[model.ConfigKey]struct{}
-	var updatedOcspStaples map[model.ConfigKey]struct{}
 	if !req.Full {
 		updatedSecrets = model.ConfigsOfKind(req.ConfigsUpdated, kind.Secret)
-		updatedOcspStaples = model.ConfigsOfKind(req.ConfigsUpdated, kind.OCSPStaple)
 	}
 
 	// TODO: For the new gateway-api, we should always search the config namespace and stop reading across all clusters
@@ -132,37 +127,34 @@ func (s *SecretGen) Generate(proxy *model.Proxy, w *model.WatchedResource, req *
 		return nil, model.DefaultXdsLogDetails, nil
 	}
 
-	// Filter down to resources we can access. We do not return an error if they attempt to access a Secret
+	// Filter down to secretResources we can access. We do not return an error if they attempt to access a Secret
 	// they cannot; instead we just exclude it. This ensures that a single bad reference does not break the whole
 	// SDS flow. The pilotSDSCertificateErrors metric and logs handle visibility into invalid references.
-	resources := filterAuthorizedResources(s.parseResources(w.ResourceNames, proxy), proxy, proxyClusterSecrets)
+	secretResources := filterAuthorizedResources(s.parseResources(w.ResourceNames, proxy), proxy, proxyClusterSecrets)
 	// Fetch additional attributes for these resources (e.g whether OCSP stapling is enabled)
 	certResourceMap := s.certToResource(proxy)
-	for _, resource := range resources {
+	for i, resource := range secretResources {
 		log.Infof("secret resource name: %s", resource.Name)
 
 		additionalAttributes := s.compileAdditionalAttributes(certResourceMap, resource)
 		resource.AddAdditionalAttributes(additionalAttributes)
+		secretResources[i] = resource
 	}
 
 	results := model.Resources{}
 	cached, regenerated := 0, 0
-	for _, sr := range resources {
-		if updatedSecrets != nil || updatedOcspStaples != nil {
-			if !containsAny(updatedSecrets, relatedConfigs(model.ConfigKey{Kind: kind.Secret, Name: sr.Name, Namespace: sr.Namespace})) &&
-				!containsAny(updatedOcspStaples, relatedConfigs(model.ConfigKey{Kind: kind.OCSPStaple, Name: sr.Name, Namespace: sr.Namespace})) {
-				// This is an incremental update, filter out secrets that are not updated.
-				continue
-			}
-		}
+	for _, sr := range secretResources {
 		cachedItem, f := s.cache.Get(sr)
 		if f && !features.EnableUnsafeAssertions && isValidOcspStaple(sr, *cachedItem) {
 			// If it is in the Cache, add it and continue
 			// We skip cache if assertions are enabled, so that the cache will assert our eviction logic is correct
+			log.Warnf("ocsp: for resource %s, using cached", sr.Name)
+
 			results = append(results, cachedItem)
 			cached++
 			continue
 		}
+		log.Warnf("ocsp: for resource %s, regenerating", sr.Name)
 		regenerated++
 		res := s.generate(sr, configClusterSecrets, proxyClusterSecrets, proxy)
 		if res != nil {
@@ -201,19 +193,9 @@ func (s *SecretGen) certToResource(proxy *model.Proxy) map[string]*networking.Se
 		}
 
 		for _, server := range mergedServers.Servers {
-			if server == nil {
-				log.Infof("server is nil, cannot fetch additional attributes")
+			if server == nil || server.Tls == nil {
 				continue
 			}
-
-			log.Infof("processing server %s", server.Name)
-
-			if server.Tls == nil {
-				log.Infof("server with hosts %+v has no TLS", server.Hosts)
-				continue
-			}
-
-			log.Infof("adding server for credential name %s", server.Tls.CredentialName)
 			certToServer[server.Tls.CredentialName] = server
 		}
 	}
@@ -287,12 +269,15 @@ func (s *SecretGen) generate(sr SecretResource, configClusterSecrets, proxyClust
 	}
 
 	// Fetch an OCSP staple
-	var ocspStaple ocsp.OcspStaple
+	ocspStaple := &ocsp.OcspStaple{
+		RawStaple: make([]byte, 0),
+	}
 
 	if isOcspEnabled(sr) {
+		log.Warnf("for resource %s, OCSP stapling is enabled", sr.Name)
 		// Check the OCSP Stapling Mode
 		// Default is Mandatory
-		staplingModeRaw, ok := sr.AdditionalAttributes[OcspStaplingMode].(string)
+		staplingModeRaw, ok := sr.GetAdditionalAttribute(OcspStaplingMode).(string)
 		if !ok {
 			staplingModeRaw = "Mandatory"
 		}
@@ -304,7 +289,7 @@ func (s *SecretGen) generate(sr SecretResource, configClusterSecrets, proxyClust
 		}
 
 		ocspHandler := ocsp.GetOcspClient()
-		ocspStaple = ocspHandler.RequestOcspStaple(staplingMode, sr.Name, sr.Namespace, cert)
+		ocspStaple, err = ocspHandler.RequestOcspStaple(staplingMode, sr.Name, sr.Namespace, cert)
 		if err != nil {
 			pilotSDSCertificateErrors.Increment()
 			log.Warnf("failed to fetch OCSP staple for %s: %v", sr.ResourceName, err)
@@ -317,18 +302,10 @@ func (s *SecretGen) generate(sr SecretResource, configClusterSecrets, proxyClust
 }
 
 func isOcspEnabled(sr SecretResource) bool {
-	staplingEnabledRaw := "false"
-	staplingEnabled := false
-
 	// Check whether stapling is enabled for this certificate
 	// Default is to disable OCSP Stapling
-	staplingEnabledRaw, ok := sr.AdditionalAttributes[OcspStaplingEnabled].(string)
+	staplingEnabled, ok := sr.GetAdditionalAttribute(OcspStaplingEnabled).(bool)
 	if !ok {
-		staplingEnabledRaw = "false"
-	}
-
-	staplingEnabled, err := strconv.ParseBool(staplingEnabledRaw)
-	if err != nil {
 		staplingEnabled = false
 	}
 
@@ -336,20 +313,38 @@ func isOcspEnabled(sr SecretResource) bool {
 }
 
 func isValidOcspStaple(sr SecretResource, resource discovery.Resource) bool {
-	if !isOcspEnabled(sr) {
-		log.Infof("OCSP Stapling disabled for resource name %s", sr.Namespace)
-		return false
-	}
-
-	tlsCertificate := envoytls.TlsCertificate{}
-	err := resource.GetResource().UnmarshalTo(&tlsCertificate)
+	res := resource.GetResource()
+	envoySecret := envoytls.Secret{}
+	err := res.UnmarshalTo(&envoySecret)
 	if err != nil {
-		log.Warnf("failed to get TLS Certificate from resource")
+		log.Warnf("failed to get Envoy Secret from resource")
 	}
 
-	emptyStaple := len(tlsCertificate.OcspStaple.GetInlineBytes()) == 0
-	expiredStaple := ocsp.HasOcspStapleExpired(tlsCertificate.OcspStaple.GetInlineBytes(), tlsCertificate.CertificateChain.GetInlineBytes())
-	return !(emptyStaple || expiredStaple)
+	tlsCertificate := envoySecret.GetTlsCertificate()
+
+	if tlsCertificate != nil {
+		emptyStaple := (tlsCertificate.OcspStaple.GetInlineBytes() == nil || len(tlsCertificate.OcspStaple.GetInlineBytes()) == 0) && len(tlsCertificate.OcspStaple.GetInlineString()) == 0
+		emptyCert := tlsCertificate.CertificateChain.GetInlineBytes() == nil || len(tlsCertificate.CertificateChain.GetInlineBytes()) == 0
+
+		if !isOcspEnabled(sr) && emptyStaple {
+			// if OCSP stapling is disabled and the staple is empty, then consider valid
+			log.Warnf("Resource %s has OCSP staple disabled and no staple", sr.Name)
+			return true
+		} else if !isOcspEnabled(sr) && !emptyStaple {
+			// if there is an OCSP staple but stapling is disabled, then not valid
+			log.Warnf("Resource %s has OCSP staple disabled but we found a staple", sr.Name)
+			return false
+		} else if isOcspEnabled(sr) && (emptyCert || emptyStaple) {
+			// if OCSP staple is requested but either the cert is empty or the staple is empty, then also not valid
+			log.Warnf("Resource %s has OCSP staple enabled but we found no staple or certificate", sr.Name)
+			return false
+		}
+
+		expiredStaple, _ := ocsp.HasOcspStapleExpired(tlsCertificate.OcspStaple.GetInlineBytes(), tlsCertificate.CertificateChain.GetInlineBytes())
+		return !expiredStaple
+	}
+
+	return true
 }
 
 func validateCertificate(data []byte) error {
@@ -470,9 +465,6 @@ func toEnvoyCaSecret(name string, cert []byte) *discovery.Resource {
 func toEnvoyKeyCertSecret(name string, key, cert, ocsp []byte, proxy *model.Proxy, meshConfig *mesh.MeshConfig) *discovery.Resource {
 	var res *anypb.Any
 	pkpConf := proxy.Metadata.ProxyConfigOrDefault(meshConfig.GetDefaultConfig()).GetPrivateKeyProvider()
-	if len(ocsp) == 0 {
-		log.Warnf("OCSP staple for %s is empty!", name)
-	}
 
 	switch pkpConf.GetProvider().(type) {
 	case *mesh.PrivateKeyProvider_Cryptomb:

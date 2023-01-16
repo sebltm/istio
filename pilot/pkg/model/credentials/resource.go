@@ -49,7 +49,7 @@ type SecretResource struct {
 	// Cluster is the cluster the secret should be fetched from.
 	Cluster cluster.ID
 	// AdditionalAttributes represents attributes linked to the SecretResource
-	AdditionalAttributes map[string]interface{}
+	additionalAttributes map[string]interface{}
 }
 
 func (sr SecretResource) Key() string {
@@ -61,13 +61,25 @@ func (sr SecretResource) KubernetesResourceName() string {
 }
 
 func (sr *SecretResource) AddAdditionalAttributes(additionalAttribute map[string]interface{}) {
-	if sr.AdditionalAttributes == nil {
-		sr.AdditionalAttributes = make(map[string]interface{})
+	if sr.additionalAttributes == nil {
+		sr.additionalAttributes = make(map[string]interface{})
 	}
 
 	for key, value := range additionalAttribute {
-		sr.AdditionalAttributes[key] = value
+		sr.additionalAttributes[key] = value
 	}
+}
+
+func (sr *SecretResource) GetAdditionalAttribute(key string) interface{} {
+	if attr, ok := sr.additionalAttributes[key]; ok {
+		return attr
+	}
+
+	return nil
+}
+
+func (sr *SecretResource) DumpAdditionalAttributes() map[string]interface{} {
+	return sr.additionalAttributes
 }
 
 func ToKubernetesGatewayResource(namespace, name string) string {

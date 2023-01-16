@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ocsp"
@@ -20,7 +21,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 
-	"istio.io/api/networking/v1alpha3"
+	clientnetworking "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	"istio.io/istio/pkg/config/schema/collections"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/security"
@@ -31,25 +32,30 @@ var (
 	ocspLog            = log.RegisterScope("ocsp", "ocsp debugging", 0)
 	ctx                = context.Background()
 	timeoutDuration    = 5 * time.Second
+	gracePeriod        = 24 * time.Hour
 	contentType        = "Content-Type"
 	ocspRequestType    = "application/ocsp-request"
 	ocspResponseType   = "application/ocsp-response"
 	accept             = "Accept"
 	host               = "host"
+	allNamespaces      = ""
 	ocspClientInstance *OcspClient
 )
 
 type OcspClient struct {
 	kubeclient     *dynamic.NamespaceableResourceInterface
 	certOcspStaple map[string]OcspStaple
+	lock           *sync.Mutex
 }
 
 type OcspStaple struct {
-	RawStaple []byte
-	CertBytes []byte
-	Namespace string
-	OcspMode  security.OcspMode
-	Ttl       time.Duration
+	RawStaple       []byte
+	CertBytes       []byte
+	Namespace       string
+	CertificateName string
+	Name            string
+	OcspMode        security.OcspMode
+	Ttl             time.Duration
 }
 
 func GetOcspClient() *OcspClient {
@@ -58,20 +64,23 @@ func GetOcspClient() *OcspClient {
 	}
 	ocspClientInstance = &OcspClient{}
 
+	ocspClientInstance.lock = &sync.Mutex{}
+
 	kubeclient := ocspClientInstance.getKubeOcspClient()
 	ocspClientInstance.kubeclient = &kubeclient
 
 	ocspClientInstance.certOcspStaple = make(map[string]OcspStaple)
 
-	existingOcspStaples, err := ocspClientInstance.listOcspStaples()
+	ocspStapleList, err := ocspClientInstance.listOcspStaples(allNamespaces)
 	if err != nil {
-		ocspLog.Errorf("Failed to populate existing OCSP Staples: %s", err)
+		ocspLog.Errorf("failed to populate existing OCSP Staples: %s", err)
 	}
-	for _, ocspStaple := range existingOcspStaples {
-		name := ocspStaple.GetCertificateName()
+	ocspLog.Warnf("found list of OCSP staples: %+v", ocspStapleList)
+	for _, ocspStaple := range ocspStapleList.Items {
+		name := ocspStaple.Spec.GetCertificateName()
 		ocspClientInstance.certOcspStaple[name] = OcspStaple{
-			RawStaple: ocspStaple.GetStaple(),
-			Ttl:       ocspStaple.GetTtl().AsDuration(),
+			RawStaple: ocspStaple.Spec.GetStaple(),
+			Ttl:       ocspStaple.Spec.GetTtl().AsDuration(),
 		}
 	}
 
@@ -81,17 +90,17 @@ func GetOcspClient() *OcspClient {
 func (c OcspClient) newController() *kube.Client {
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		ocspLog.Errorf("Could not get istiod incluster configuration: %v", err)
+		ocspLog.Errorf("could not get istiod incluster configuration: %v", err)
 		return nil
 	}
-	ocspLog.Info("Successfully retrieved incluster config.")
+	ocspLog.Info("successfully retrieved incluster config.")
 
 	localKubeClient, err := kube.NewClient(kube.NewClientConfigForRestConfig(config))
 	if err != nil {
-		ocspLog.Errorf("Could not create a client to access local cluster API server: %v", err)
+		ocspLog.Errorf("could not create a client to access local cluster API server: %v", err)
 		return nil
 	}
-	ocspLog.Infof("Successfully created in cluster kubeclient at %s", localKubeClient.RESTConfig().Host)
+	ocspLog.Infof("successfully created in cluster kubeclient at %s", localKubeClient.RESTConfig().Host)
 
 	return &localKubeClient
 }
@@ -113,29 +122,64 @@ func (c OcspClient) getKubeOcspClient() dynamic.NamespaceableResourceInterface {
 }
 
 func (c OcspClient) MonitorOcspStaples() {
-	for certName, ocspStaple := range c.certOcspStaple {
-		if ocspStaple.RawStaple == nil || len(ocspStaple.RawStaple) == 0 || HasOcspStapleExpired(ocspStaple.RawStaple, ocspStaple.CertBytes) {
-			c.generateOcspStaple(ocspStaple.OcspMode, certName, ocspStaple.Namespace, ocspStaple.CertBytes)
+	for {
+		for certName, ocspStaple := range c.certOcspStaple {
+			if len(ocspStaple.CertBytes) == 0 {
+				// no cert info, skip
+				continue
+			}
+
+			expired, ttl := HasOcspStapleExpired(ocspStaple.RawStaple, ocspStaple.CertBytes)
+			if ocspStaple.RawStaple == nil || len(ocspStaple.RawStaple) == 0 || expired {
+				_, err := c.generateOcspStaple(ocspStaple.OcspMode, certName, ocspStaple.Namespace, ocspStaple.CertBytes)
+				ocspLog.Warnf("failed to generate OCSP staple while monitoring OCSP Staples: %s", err)
+			} else {
+				// update the TTL
+				c.writeOcspStaple(ocspStaple.RawStaple, ttl, ocspStaple.CertificateName, ocspStaple.Name, ocspStaple.Namespace)
+			}
 		}
+		time.Sleep(timeoutDuration)
 	}
 }
 
-func (c OcspClient) RequestOcspStaple(OcspMode security.OcspMode, certName string, certNamespace string, certBytes []byte) OcspStaple {
-	_, ok := c.certOcspStaple[certName]
+func (c OcspClient) RequestOcspStaple(OcspMode security.OcspMode, certName string, certNamespace string, certBytes []byte) (*OcspStaple, error) {
+	ocspStaple, ok := c.certOcspStaple[certName]
 	if !ok {
-		c.certOcspStaple[certName] = OcspStaple{
+		rawStaple, err := c.generateOcspStaple(OcspMode, certName, certNamespace, certBytes)
+		if err != nil {
+			return nil, err
+		}
+		ocspStaple = OcspStaple{
 			OcspMode:  OcspMode,
 			Namespace: certNamespace,
+			CertBytes: certBytes,
+			RawStaple: rawStaple,
 		}
+		return &ocspStaple, nil
 	}
 
-	return c.certOcspStaple[certName]
+	// update OCSP staple with latest info
+	if ocspStaple.CertBytes == nil || len(ocspStaple.CertBytes) == 0 {
+		ocspStaple.CertBytes = certBytes
+	}
+	if ocspStaple.CertificateName == "" {
+		ocspStaple.CertificateName = certName
+	}
+	if ocspStaple.Namespace == "" {
+		ocspStaple.Namespace = certNamespace
+	}
+
+	c.certOcspStaple[certName] = ocspStaple
+	return &ocspStaple, nil
 }
 
 func (c OcspClient) generateOcspStaple(OcspMode security.OcspMode, certName string, certNamespace string, certBytes []byte) ([]byte, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
 	existingStaple, ok := c.certOcspStaple[certName]
-	if ok {
-		if !HasOcspStapleExpired(existingStaple.RawStaple, certBytes) {
+	if ok && existingStaple.RawStaple != nil && len(existingStaple.RawStaple) > 0 && len(certBytes) > 0 {
+		if expired, _ := HasOcspStapleExpired(existingStaple.RawStaple, certBytes); !expired {
 			return existingStaple.RawStaple, nil
 		}
 	}
@@ -155,7 +199,7 @@ func (c OcspClient) generateOcspStaple(OcspMode security.OcspMode, certName stri
 		return ocspResponse, err
 	}
 
-	ocspLog.Debugf("Received the issuer certificate")
+	ocspLog.Debugf("received the issuer certificate")
 
 	opts := &ocsp.RequestOptions{Hash: crypto.SHA1}
 	buffer, err := ocsp.CreateRequest(cert, issuer, opts)
@@ -163,14 +207,14 @@ func (c OcspClient) generateOcspStaple(OcspMode security.OcspMode, certName stri
 		return ocspResponse, fmt.Errorf("couldn't create OCSP request: %s", err)
 	}
 
-	ocspLog.Debugf("Created the OCSP request")
+	ocspLog.Debugf("created the OCSP request")
 
 	ocspResponse, err = c.sendOcspRequest(cert.OCSPServer[0], buffer)
 	if err != nil {
 		return ocspResponse, fmt.Errorf("failed to send OCSP request: %s", err)
 	}
 
-	ocspLog.Debugf("Received the OCSP response")
+	ocspLog.Debugf("received the OCSP response")
 
 	ocspStaple, err := ocsp.ParseResponse(ocspResponse, issuer)
 	if err != nil {
@@ -178,18 +222,21 @@ func (c OcspClient) generateOcspStaple(OcspMode security.OcspMode, certName stri
 		return make([]byte, 0), nil
 	}
 	ttl := time.Until(ocspStaple.NextUpdate)
-	c.writeOcspStaple(ocspStaple.Raw, ttl, certName, certName, certNamespace)
+	err = c.writeOcspStaple(ocspStaple.Raw, ttl, certName, certName, certNamespace)
+	if err != nil {
+		ocspLog.Warnf("failed to persist OCSP staple: %s", err)
+	}
 
 	return ocspStaple.Raw, nil
 }
 
-func HasOcspStapleExpired(rawStaple []byte, rawCertChain []byte) bool {
+func HasOcspStapleExpired(rawStaple []byte, rawCertChain []byte) (bool, time.Duration) {
 	ocspStapleExpired := true
 
 	cert, err := decodePem(rawCertChain)
 	if err != nil {
 		ocspLog.Warn("failed to decode PEM")
-		return ocspStapleExpired
+		return ocspStapleExpired, 0
 	}
 
 	timeout, cancel := context.WithTimeout(ctx, timeoutDuration)
@@ -198,21 +245,21 @@ func HasOcspStapleExpired(rawStaple []byte, rawCertChain []byte) bool {
 	issuer, err := getIssuerCert(timeout, cert.IssuingCertificateURL[0])
 	if err != nil {
 		ocspLog.Warn("failed to get issuer certificate")
-		return ocspStapleExpired
+		return ocspStapleExpired, 0
 	}
 
 	staple, err := ocsp.ParseResponse(rawStaple, issuer)
 	if err != nil {
 		ocspLog.Warnf("error while parsing the staple: %s", err)
-		return ocspStapleExpired
+		return ocspStapleExpired, 0
 	}
 
-	if staple.NextUpdate.After(time.Now()) {
-		return ocspStapleExpired
+	if staple.NextUpdate.After(time.Now().Add(-gracePeriod)) {
+		return ocspStapleExpired, 0
 	}
 
 	ocspStapleExpired = false
-	return ocspStapleExpired
+	return ocspStapleExpired, time.Until(staple.NextUpdate)
 }
 
 // decodePem: decode the bytes of a certificate chain into a x509 certificate
@@ -281,41 +328,40 @@ func (c OcspClient) sendOcspRequest(leafOcsp string, buffer []byte) ([]byte, err
 	return output, nil
 }
 
-func (c OcspClient) listOcspStaples() ([]*v1alpha3.OCSPStaple, error) {
+func (c OcspClient) listOcspStaples(namespace string) (*clientnetworking.OCSPStapleList, error) {
 	ocspClient := c.getKubeOcspClient()
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutDuration)
 	defer cancel()
 
-	unstructStapleList, err := ocspClient.Namespace("").List(ctx, v1.ListOptions{})
+	unstructStapleList, err := ocspClient.Namespace(namespace).List(ctx, v1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to find list of staples")
+		return nil, fmt.Errorf("failed to find list of OCSPStaples: %s", err)
 	}
 
-	ocspStapleList := make([]*v1alpha3.OCSPStaple, len(unstructStapleList.Items))
-
-	for i, unstructStapleObject := range unstructStapleList.Items {
-		stapleObject := &v1alpha3.OCSPStaple{}
-		err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructStapleObject.Object, stapleObject)
-		ocspLog.Errorf("failed to convert unstructured staple object into OCSPStaple %s in namespace %s: %s", unstructStapleObject.GetName(), unstructStapleObject.GetNamespace(), err)
-		ocspStapleList[i] = stapleObject
+	ocspStapleList := &clientnetworking.OCSPStapleList{}
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructStapleList.Object, ocspStapleList)
+	if err != nil {
+		ocspLog.Warnf("failed to convert unstructured OCSPStapleList into OCSPStapleList: %s", err)
 	}
 
 	return ocspStapleList, nil
 }
 
-func (c OcspClient) readOcspStaple(stapleName string, namespace string) (*v1alpha3.OCSPStaple, error) {
+func (c OcspClient) readOcspStaple(stapleName string, namespace string) (*clientnetworking.OCSPStaple, error) {
 	ocspClient := c.getKubeOcspClient()
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutDuration)
 	defer cancel()
 
+	stapleObject := &clientnetworking.OCSPStaple{}
+	stapleObject.SetGroupVersionKind(collections.IstioNetworkingV1Alpha3Ocspstaples.Resource().GroupVersionKind().Kubernetes())
+
 	unstructStapleObject, err := ocspClient.Namespace(namespace).Get(ctx, stapleName, v1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to find staple %s in namespace %s: %s", stapleName, namespace, err)
+		return stapleObject, fmt.Errorf("failed to find staple %s in namespace %s: %s", stapleName, namespace, err)
 	}
 
-	stapleObject := &v1alpha3.OCSPStaple{}
 	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructStapleObject.Object, stapleObject)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert unstructured staple object into OCSPStaple %s in namespace %s: %s", stapleName, namespace, err)
@@ -333,35 +379,34 @@ func (c OcspClient) writeOcspStaple(staple []byte, ttl time.Duration, certificat
 	createStaple := false
 	stapleObject, err := c.readOcspStaple(stapleName, namespace)
 	if err != nil {
+		ocspLog.Warnf("OCSP Staple %s not found in namespace %s: %s. Will attempt to create a new one", stapleName, namespace, err)
 		createStaple = true
-		stapleObject = &v1alpha3.OCSPStaple{}
 	}
 
-	stapleObject.Staple = staple
-	stapleObject.Ttl = durationpb.New(ttl)
-	stapleObject.CertificateName = certificateName
+	if stapleObject.GetName() == "" {
+		stapleObject.Name = certificateName
+	}
+
+	stapleObject.Spec.Staple = staple
+	stapleObject.Spec.Ttl = durationpb.New(ttl)
+	stapleObject.Spec.CertificateName = certificateName
 
 	unstructuredStapleContent, err := runtime.DefaultUnstructuredConverter.ToUnstructured(stapleObject)
-	unstructuredStaple := unstructured.Unstructured{}
-
-	ocspStaplesResource := collections.IstioNetworkingV1Alpha3Ocspstaples.Resource()
-	unstructuredStaple.SetGroupVersionKind(ocspStaplesResource.GroupVersionKind().Kubernetes())
-	unstructuredStaple.SetUnstructuredContent(unstructuredStapleContent)
-	unstructuredStaple.SetName(stapleName)
-
 	if err != nil {
-		return fmt.Errorf("failed to convert from staple %s in namespace %s to unstructured object", stapleName, namespace)
+		ocspLog.Warnf("failed to convert OCSP staple to unstructured: %s", err)
 	}
+	unstructuredStaple := unstructured.Unstructured{}
+	unstructuredStaple.SetUnstructuredContent(unstructuredStapleContent)
 
 	if createStaple {
-		_, err := ocspClient.Namespace(namespace).Update(ctx, &unstructuredStaple, v1.UpdateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to update staple %s in namespace %s: %s", stapleName, namespace, err)
-		}
-	} else {
 		_, err := ocspClient.Namespace(namespace).Create(ctx, &unstructuredStaple, v1.CreateOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to create staple %s in namespace %s: %s", stapleName, namespace, err)
+		}
+	} else {
+		_, err := ocspClient.Namespace(namespace).Update(ctx, &unstructuredStaple, v1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to update staple %s in namespace %s: %s", stapleName, namespace, err)
 		}
 	}
 
@@ -371,4 +416,25 @@ func (c OcspClient) writeOcspStaple(staple []byte, ttl time.Duration, certificat
 	}
 
 	return nil
+}
+
+func (c OcspClient) deleteOcspStaple(stapleName string, namespace string) bool {
+	ocspClient := c.getKubeOcspClient()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutDuration)
+	defer cancel()
+
+	_, err := c.readOcspStaple(stapleName, namespace)
+	if err != nil {
+		ocspLog.Warnf("unable to find OCSP staple %s in namespace %s: %s", stapleName, namespace, err)
+		return false
+	}
+
+	err = ocspClient.Namespace(namespace).Delete(ctx, stapleName, v1.DeleteOptions{})
+	if err != nil {
+		ocspLog.Warnf("failed to delete OCSP staple %s in namespace %s")
+		return false
+	}
+
+	return true
 }

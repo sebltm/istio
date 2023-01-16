@@ -2956,6 +2956,19 @@ spec:
                           - AUTO_PASSTHROUGH
                           - ISTIO_MUTUAL
                           type: string
+                        ocsp:
+                          properties:
+                            stapling:
+                              properties:
+                                enabled:
+                                  type: boolean
+                                mode:
+                                  enum:
+                                  - MANDATORY
+                                  - OPTIONAL
+                                  type: string
+                              type: object
+                          type: object
                         privateKey:
                           description: REQUIRED if mode is `SIMPLE` or `MUTUAL`.
                           type: string
@@ -3072,6 +3085,19 @@ spec:
                           - AUTO_PASSTHROUGH
                           - ISTIO_MUTUAL
                           type: string
+                        ocsp:
+                          properties:
+                            stapling:
+                              properties:
+                                enabled:
+                                  type: boolean
+                                mode:
+                                  enum:
+                                  - MANDATORY
+                                  - OPTIONAL
+                                  type: string
+                              type: object
+                          type: object
                         privateKey:
                           description: REQUIRED if mode is `SIMPLE` or `MUTUAL`.
                           type: string
@@ -3093,6 +3119,77 @@ spec:
                       type: object
                   type: object
                 type: array
+            type: object
+          status:
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: false
+    subresources:
+      status: {}
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    "helm.sh/resource-policy": keep
+  labels:
+    app: istio-pilot
+    chart: istio
+    heritage: Tiller
+    release: istio
+  name: ocspstaples.networking.istio.io
+spec:
+  group: networking.istio.io
+  names:
+    categories:
+    - istio-io
+    - networking-istio-io
+    kind: OCSPStaple
+    listKind: OCSPStapleList
+    plural: ocspstaples
+    singular: ocspstaple
+  scope: Namespaced
+  versions:
+  - name: v1alpha3
+    schema:
+      openAPIV3Schema:
+        properties:
+          spec:
+            properties:
+              certificateName:
+                description: A list of server specifications.
+                type: string
+              staple:
+                format: binary
+                type: string
+              ttl:
+                type: string
+            type: object
+          status:
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+  - name: v1beta1
+    schema:
+      openAPIV3Schema:
+        properties:
+          spec:
+            properties:
+              certificateName:
+                description: A list of server specifications.
+                type: string
+              staple:
+                format: binary
+                type: string
+              ttl:
+                type: string
             type: object
           status:
             type: object
@@ -3579,6 +3676,19 @@ spec:
                           - AUTO_PASSTHROUGH
                           - ISTIO_MUTUAL
                           type: string
+                        ocsp:
+                          properties:
+                            stapling:
+                              properties:
+                                enabled:
+                                  type: boolean
+                                mode:
+                                  enum:
+                                  - MANDATORY
+                                  - OPTIONAL
+                                  type: string
+                              type: object
+                          type: object
                         privateKey:
                           description: REQUIRED if mode is `SIMPLE` or `MUTUAL`.
                           type: string
@@ -3752,6 +3862,19 @@ spec:
                           - AUTO_PASSTHROUGH
                           - ISTIO_MUTUAL
                           type: string
+                        ocsp:
+                          properties:
+                            stapling:
+                              properties:
+                                enabled:
+                                  type: boolean
+                                mode:
+                                  enum:
+                                  - MANDATORY
+                                  - OPTIONAL
+                                  type: string
+                              type: object
+                          type: object
                         privateKey:
                           description: REQUIRED if mode is `SIMPLE` or `MUTUAL`.
                           type: string
